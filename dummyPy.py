@@ -2,7 +2,7 @@ from easygopigo3 import EasyGoPiGo3
 import time
 import math
 
-# to do: separate classes
+# to do: separate classes, refactor
 
 ########### INITIALIZE ROBOT OBJECT ###########
 # create an instance of the GoPiGo3 class.
@@ -22,16 +22,17 @@ targetSec = 59 # seconds of target time
 # D0 D1 D2 D3 D4
 # E0 E1 E2 E3 E4
 # to drive to A3 from the horizontal side, type d-A3-h
+# to scoot back and push a water bottle to A5 horizontal, type w-A5-h
 # to drive to the right edge of A4, type hd-A4-r
 
-startCoords = "B4"
-startEdge = "r"
+startCoords = "E1"
+startEdge = "l"
 
 drivePath="d-A4-v d-A1-h d-A3-h d-C3-v d-E2-v d-E4-h d-B1-v d-E1-v"
-safePath="d-E1-v"
+safePath="d-E4-h w-C4-v"
 ## IF AMBITIOUS RUN, ALL OF THE FOLLOWING SHOULD BE FALSE
-testing=True
-safe=False
+testing=False
+safe=True
 calibrateRot=False
 calibrateDrive=False
 
@@ -242,11 +243,9 @@ class Strat():
             
         return (acth, countTurns)
 
-    def updates(self,ntd,nt,nd,gl,gd):
-        if ntd=="r": 
-            self.totalR+=nt
-        else:
-            self.totalL+=nt
+    def updates(self,nr,nl,nd,gl,gd):
+        self.totalR+=nr
+        self.totalL+=nl
         
         self.pathLen+=nd
         self.currLoc=gl
@@ -286,7 +285,7 @@ class Strat():
         return (x*scale, y*scale)
     
     ### strategizer ###
-    def calcDriveSequenceh(self, goalLoc, goalDirh):
+    def calcDriveSequenceh(self, act, goalLoc, goalDirh):
         # returns code instruction tokens as list of code tuples
         # (act,dir/dist,nTurns/0)
         ans = []
@@ -303,6 +302,7 @@ class Strat():
         if goalDirh=="v":
             order = [((dirtx,0), horDist),((0,dirty), verDist)]
 
+        # assumes all instructions are some form of drive...
         for (nextDirt, nextDist) in order:
             if nextDist==0:
                 continue
@@ -313,13 +313,42 @@ class Strat():
 #            print(nextDist)
     
             newTurnDirh, nTurns = self.calcNTurnsh(nextDirt)
+            newTurnDirt = dirts[newTurnDirh]
+            reverseNewTurnDirt = self.scaleTup(newTurnDirt,-1)
+            reverseNewTurnDirh = dirhs[reverseNewTurnDirt]
+
             distVec = self.scaleTup(nextDirt, nextDist)
             newLoc = self.addTups(self.currLoc, distVec)
             newFaceh = dirhs[nextDirt]
 
-            self.updates(newTurnDirh,nTurns,nextDist,newLoc,newFaceh) #this shouldn't be here
+            addDist = nextDist
+            addR = 0
+            addL = 0
+
+            if newTurnDirh=="r":
+                addR+=nTurns
+            else:
+                addL+=nTurns
+
+            if act=="w":
+                ans.append(("d",-0.5,0))
+                ans.append(("r",reverseNewTurnDirh,1))
+                ans.append(("d",0.5,0))
+                ans.append(("r",newTurnDirh,1))
+                ans.append(("d",0.5,0))
+                ans.append(("r",newTurnDirh,1))
+                ans.append(("d",0.5,0))
+
+                if newTurnDirh=="r":
+                    addR+=2
+                    addL+=1
+                else:
+                    addL+=2
+                    addR+=1
+
+            self.updates(addR,addL,addDist,newLoc,newFaceh) #this shouldn't be here
             
-            if nTurns!=0:
+            if nTurns!=0 and not act=="w":
                 ans.append(("r",newTurnDirh,nTurns))
                 
             if nextDist!=0:
@@ -332,8 +361,8 @@ class Strat():
         for step in self.steps:
             act,loc,dirh = step
 
-            if act=="d":
-                newSteps = self.calcDriveSequenceh(loc,dirh)
+            if act=="d" or act=="w":
+                newSteps = self.calcDriveSequenceh(act,loc,dirh)
                 
                 ans = ans + newSteps
                 
